@@ -1,0 +1,181 @@
+{
+  "formatVersion": 1,
+  "id": "esqueleto",
+  "name": "Esqueleto",
+  "description": "Disfraz de esqueleto geométrico, sin referencia a una obra concreta. Sirve para comprobar que el rig se puede cambiar.",
+  "defaults": {
+    "minVisibility": 0.5
+  },
+  "parts": [
+    {
+      "id": "left_thigh",
+      "src": "bone.png",
+      "zIndex": 10,
+      "anchor": "LEFT_HIP",
+      "aimFrom": "LEFT_HIP",
+      "aimTo": "LEFT_KNEE",
+      "sizeFrom": "LEFT_HIP",
+      "sizeTo": "LEFT_KNEE",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.1812
+      },
+      "lengthScale": 1.08,
+      "widthScale": 1.15,
+      "minVisibility": 0.5
+    },
+    {
+      "id": "right_thigh",
+      "src": "bone.png",
+      "zIndex": 10,
+      "anchor": "RIGHT_HIP",
+      "aimFrom": "RIGHT_HIP",
+      "aimTo": "RIGHT_KNEE",
+      "sizeFrom": "RIGHT_HIP",
+      "sizeTo": "RIGHT_KNEE",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.1812
+      },
+      "lengthScale": 1.08,
+      "widthScale": 1.15,
+      "minVisibility": 0.5
+    },
+    {
+      "id": "left_shin",
+      "src": "bone.png",
+      "zIndex": 12,
+      "anchor": "LEFT_KNEE",
+      "aimFrom": "LEFT_KNEE",
+      "aimTo": "LEFT_ANKLE",
+      "sizeFrom": "LEFT_KNEE",
+      "sizeTo": "LEFT_ANKLE",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.1812
+      },
+      "lengthScale": 1.08,
+      "widthScale": 0.95,
+      "minVisibility": 0.5
+    },
+    {
+      "id": "right_shin",
+      "src": "bone.png",
+      "zIndex": 12,
+      "anchor": "RIGHT_KNEE",
+      "aimFrom": "RIGHT_KNEE",
+      "aimTo": "RIGHT_ANKLE",
+      "sizeFrom": "RIGHT_KNEE",
+      "sizeTo": "RIGHT_ANKLE",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.1812
+      },
+      "lengthScale": 1.08,
+      "widthScale": 0.95,
+      "minVisibility": 0.5
+    },
+    {
+      "id": "torso",
+      "src": "ribs.png",
+      "zIndex": 20,
+      "anchor": "MID_SHOULDERS",
+      "aimFrom": "NOSE",
+      "aimTo": "MID_SHOULDERS",
+      "sizeFrom": "LEFT_SHOULDER",
+      "sizeTo": "RIGHT_SHOULDER",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.0522
+      },
+      "lengthScale": 1.55,
+      "widthScale": 1.05,
+      "minVisibility": 0.4
+    },
+    {
+      "id": "left_upper_arm",
+      "src": "bone.png",
+      "zIndex": 30,
+      "anchor": "LEFT_SHOULDER",
+      "aimFrom": "LEFT_SHOULDER",
+      "aimTo": "LEFT_ELBOW",
+      "sizeFrom": "LEFT_SHOULDER",
+      "sizeTo": "LEFT_ELBOW",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.1812
+      },
+      "lengthScale": 1.1,
+      "widthScale": 0.85,
+      "minVisibility": 0.4
+    },
+    {
+      "id": "right_upper_arm",
+      "src": "bone.png",
+      "zIndex": 30,
+      "anchor": "RIGHT_SHOULDER",
+      "aimFrom": "RIGHT_SHOULDER",
+      "aimTo": "RIGHT_ELBOW",
+      "sizeFrom": "RIGHT_SHOULDER",
+      "sizeTo": "RIGHT_ELBOW",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.1812
+      },
+      "lengthScale": 1.1,
+      "widthScale": 0.85,
+      "minVisibility": 0.4
+    },
+    {
+      "id": "left_forearm",
+      "src": "bone.png",
+      "zIndex": 34,
+      "anchor": "LEFT_ELBOW",
+      "aimFrom": "LEFT_ELBOW",
+      "aimTo": "LEFT_WRIST",
+      "sizeFrom": "LEFT_ELBOW",
+      "sizeTo": "LEFT_WRIST",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.1812
+      },
+      "lengthScale": 1.1,
+      "widthScale": 0.72,
+      "minVisibility": 0.4
+    },
+    {
+      "id": "right_forearm",
+      "src": "bone.png",
+      "zIndex": 34,
+      "anchor": "RIGHT_ELBOW",
+      "aimFrom": "RIGHT_ELBOW",
+      "aimTo": "RIGHT_WRIST",
+      "sizeFrom": "RIGHT_ELBOW",
+      "sizeTo": "RIGHT_WRIST",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.1812
+      },
+      "lengthScale": 1.1,
+      "widthScale": 0.72,
+      "minVisibility": 0.4
+    },
+    {
+      "id": "head",
+      "src": "skull.png",
+      "zIndex": 40,
+      "anchor": "NOSE",
+      "aimFrom": "NOSE",
+      "aimTo": "MID_SHOULDERS",
+      "sizeFrom": "LEFT_SHOULDER",
+      "sizeTo": "RIGHT_SHOULDER",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.575
+      },
+      "lengthScale": 1.05,
+      "widthScale": 1.0,
+      "minVisibility": 0.4
+    }
+  ]
+}

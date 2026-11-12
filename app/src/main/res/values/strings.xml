@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Máscaras</string>
+    <string name="preview_desc">Vista de la cámara</string>
+    <string name="hud_fps">%1$d FPS</string>
+    <string name="hud_fps_unknown">— FPS</string>
+    <string name="hud_mask">Máscara: %1$s</string>
+    <string name="hud_searching">Buscando cuerpo…</string>
+    <string name="hud_tracking">Cuerpo detectado</string>
+    <string name="hud_loading">Cargando modelo…</string>
+    <string name="hud_hint">← → máscara\n↑/OK espejo    ↓ puntos</string>
+    <string name="hud_mirror_on">Espejo: sí</string>
+    <string name="hud_mirror_off">Espejo: no</string>
+    <string name="msg_need_permission">La app necesita la cámara para ver el cuerpo y superponer la máscara. La imagen se procesa en el dispositivo y no se envía a ningún sitio.</string>
+    <string name="btn_allow_camera">Permitir cámara</string>
+    <string name="msg_permission_denied">Permiso de cámara denegado. Sin la cámara no se puede detectar el cuerpo.</string>
+    <string name="btn_retry">Reintentar</string>
+    <string name="btn_settings">Abrir ajustes</string>
+    <string name="msg_no_camera">No se detectó ninguna cámara. Conecta una webcam UVC y pulsa reintentar.</string>
+    <string name="msg_camera_error">No se pudo abrir la cámara. Comprueba que otra aplicación no la esté usando.</string>
+    <string name="msg_model_error">No se pudo cargar el detector de pose.</string>
+    <string name="msg_masks_error">No se pudo cargar ninguna máscara.</string>
+</resources>
