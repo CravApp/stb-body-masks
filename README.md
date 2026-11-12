@@ -2,7 +2,7 @@
 
 Disfraz 2D que sigue el cuerpo delante de una webcam, pensado para el decodificador **Claro ZTE B866V2H** (Android TV 14, Amlogic S905X4, 2 GB de RAM, userspace solo de 32 bits). También se puede instalar en un teléfono para probar.
 
-La pose sale de MediaPipe Pose Landmarker (modelo lite, CPU). Cada máscara es una carpeta con `rig.json` y PNG propios: no hay personajes con copyright. La especificación está en [`docs/SRS.md`](docs/SRS.md).
+La pose sale de MediaPipe Pose Landmarker. Por defecto es el modelo **lite**, delegado **GPU** y análisis **320×240** (la vista previa sigue en 640×480). Cada máscara es una carpeta con `rig.json` y PNG propios: no hay personajes con copyright. La especificación está en [`docs/SRS.md`](docs/SRS.md).
 
 La imagen de la cámara se procesa en el dispositivo. La app no pide permiso de internet.
 
@@ -38,9 +38,20 @@ La interfaz está en horizontal y en español.
 | ← → | Cambiar máscara (Robot, Esqueleto, y las que se añadan) |
 | ↑ o OK | Activar o quitar el espejo |
 | ↓ | Mostrar u ocultar los puntos de la pose |
+| 4 | Alternar modelo lite / completo |
+| 5 | Alternar CPU / GPU |
+| 6 | Alternar análisis 640×480 / 320×240 |
 | Atrás | Salir |
 
 El espejo empieza activado porque la webcam del decodificador se presenta como cámara frontal (Camera2 id `"0"`, `LENS_FACING` FRONT).
+
+Al actualizar, las preferencias del detector se reponen una vez a lite, GPU y 320×240. Si un modelo no carga, el respaldo no se guarda: el siguiente arranque vuelve a pedir lo que eligió el mando.
+
+```bash
+adb logcat -s BodyMasksPerf
+```
+
+Al arrancar debe salir `load requested=lite/GPU loaded=lite/GPU error=none` y, cada segundo, `model=lite requested=lite delegate=GPU target=320x240`.
 
 ## Añadir una máscara
 
@@ -84,7 +95,7 @@ Vuelve a compilar e instalar. No hace falta tocar Kotlin. `tools/generate_placeh
 
 ## Compilar
 
-Hace falta JDK 21, Android SDK 34 y Build-Tools 34.0.0. La primera compilación descarga el modelo `pose_landmarker_lite.task` (se comprueba el SHA-256).
+Hace falta JDK 21, Android SDK 34 y Build-Tools 34.0.0. La primera compilación descarga `pose_landmarker_lite.task` y `pose_landmarker_full.task` (se comprueba el SHA-256 y que los datos del zip queden alineados a 4 bytes, porque MediaPipe los mapea).
 
 ```bash
 export ANDROID_HOME="$HOME/android-sdk"
@@ -102,7 +113,7 @@ Ese release necesita que el token de Actions pueda escribir contenidos. Si el jo
 
 ## Limitaciones
 
-- El objetivo es **15 FPS o más** en el decodificador. La CI no tiene ese equipo y no lo mide. El diseño (modelo lite, una persona, 640×480, CPU, un fotograma a la vez, sin cara ni segmentación) apunta a ese número; en el S905X4 puede quedar por debajo.
+- El objetivo es **15 FPS o más** en el decodificador. La CI no tiene ese equipo y no lo mide. El diseño (modelo lite, GPU, análisis 320×240, una persona, conversión solapada con la inferencia, sin cara ni segmentación) es el que en el mismo SoC llevó hand-draw de unos 5–7 FPS a 14–15. El completo y la CPU siguen en el mando (teclas 4 y 5) y bajan el ritmo.
 - No hay Face Landmarker. La cabeza del disfraz sigue la nariz y los hombros. La cara queda para una versión posterior, y solo si no rompe los FPS.
 - Los dedos del Pose Landmarker lite son poco finos. El formato ya los nombra por si un personaje futuro los usa.
 - La vista previa y la máscara se alinean con letterbox 4:3. Si el HAL de la cámara recorta distinto, el disfraz puede desplazarse un poco.
@@ -112,5 +123,5 @@ Ese release necesita que el token de Actions pueda escribir contenidos. Si el jo
 ## Terceros
 
 - [MediaPipe Tasks](https://github.com/google-ai-edge/mediapipe) (Apache 2.0), versión 1.2.3.
-- Modelo `pose_landmarker_lite` float16 revisión 1, de Google, descargado en la compilación desde `storage.googleapis.com`.
+- Modelos `pose_landmarker_lite` y `pose_landmarker_full`, float16 revisión 1, de Google, descargados en la compilación desde `storage.googleapis.com`.
 - CameraX 1.3.4 y el resto de AndroidX, con sus licencias respectivas.

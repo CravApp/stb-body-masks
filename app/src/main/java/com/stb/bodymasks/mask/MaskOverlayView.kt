@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
 import com.stb.bodymasks.pose.DEBUG_BONES
@@ -42,6 +43,8 @@ class MaskOverlayView @JvmOverloads constructor(
         style = Paint.Style.FILL
     }
     private val dotRadius = 4f * resources.displayMetrics.density
+    var lastDrawMs: Int = 0
+        private set
 
     fun setMask(mask: LoadedMask?) {
         this.mask = mask
@@ -54,8 +57,12 @@ class MaskOverlayView @JvmOverloads constructor(
     }
 
     override fun onDraw(canvas: Canvas) {
+        val started = SystemClock.elapsedRealtime()
         super.onDraw(canvas)
-        val current = frame ?: return
+        val current = frame ?: run {
+            lastDrawMs = (SystemClock.elapsedRealtime() - started).toInt()
+            return
+        }
         if (width == 0 || height == 0 || current.imageWidth <= 0 || current.imageHeight <= 0) return
         val mapping = FrameMapping(
             viewWidth = width.toFloat(),
@@ -95,6 +102,7 @@ class MaskOverlayView @JvmOverloads constructor(
         if (showDebug && current.points.isNotEmpty()) {
             drawDebug(canvas, current, mapping)
         }
+        lastDrawMs = (SystemClock.elapsedRealtime() - started).toInt()
     }
 
     private fun drawDebug(canvas: Canvas, frame: PoseFrame, mapping: FrameMapping) {
