@@ -68,6 +68,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Obtener el código
+        uses: actions/checkout@v5
+
       - name: Descargar APK
         uses: actions/download-artifact@v4
         with:
@@ -77,6 +80,7 @@ jobs:
       - name: Publicar release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           cp dist/app-debug.apk app-debug.apk
@@ -92,11 +96,13 @@ jobs:
           La firma de depuración es estable (keystore del repositorio), así que -r sustituye la versión anterior.
           EOF
           TITLE="Máscaras Android TV (armeabi-v7a)"
-          if gh release view latest >/dev/null 2>&1; then
-            gh release upload latest app-debug.apk --clobber
-            gh release edit latest --target "${GITHUB_SHA}" --title "$TITLE" --notes-file "$NOTES_FILE"
+          REPO="$GITHUB_REPOSITORY"
+          if gh release view latest --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload latest app-debug.apk --clobber --repo "$REPO"
+            gh release edit latest --repo "$REPO" --target "${GITHUB_SHA}" --title "$TITLE" --notes-file "$NOTES_FILE"
           else
             gh release create latest \
+              --repo "$REPO" \
               --target "${GITHUB_SHA}" \
               --title "$TITLE" \
               --notes-file "$NOTES_FILE" \
