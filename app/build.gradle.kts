@@ -7,9 +7,13 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val poseModelUrl =
+val poseLiteUrl =
     "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task"
-val poseModelSha256 = "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
+val poseLiteSha256 = "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
+val poseFullUrl =
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task"
+val poseFullSha256 = "5134a3aad27a58b93da0088d431f366da362b44e3ccfbe3462b3827a839011b1"
+val poseCacheDir = layout.buildDirectory.dir("pose-models")
 val poseAssetDir = layout.buildDirectory.dir("generated/poseAssets")
 
 android {
@@ -20,8 +24,8 @@ android {
         applicationId = "com.stb.bodymasks"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         // El decodificador solo carga userspace de 32 bits. Cualquier .so arm64 queda fuera del APK.
         ndk {
             abiFilters += "armeabi-v7a"
@@ -68,6 +72,10 @@ android {
 
     sourceSets.getByName("main").assets.srcDir(poseAssetDir)
 
+    androidResources {
+        noCompress += listOf("task", "tflite")
+    }
+
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -109,13 +117,16 @@ dependencies {
 }
 
 val downloadPoseModel = tasks.register("downloadPoseModel") {
-    inputs.property("url", poseModelUrl)
-    inputs.property("sha256", poseModelSha256)
+    inputs.property("liteUrl", poseLiteUrl)
+    inputs.property("liteSha256", poseLiteSha256)
+    inputs.property("fullUrl", poseFullUrl)
+    inputs.property("fullSha256", poseFullSha256)
     outputs.dir(poseAssetDir)
     doLast {
-        val dir = poseAssetDir.get().asFile
-        dir.mkdirs()
-        val dest = dir.resolve("pose_landmarker_lite.task")
+        val cache = poseCacheDir.get().asFile
+        val assets = poseAssetDir.get().asFile
+        cache.mkdirs()
+        assets.mkdirs()
 
         fun sha256(file: File): String {
             val digest = MessageDigest.getInstance("SHA-256")
@@ -130,44 +141,62 @@ val downloadPoseModel = tasks.register("downloadPoseModel") {
             return digest.digest().joinToString("") { "%02x".format(it) }
         }
 
-        if (dest.isFile && sha256(dest) == poseModelSha256) {
-            return@doLast
-        }
-
-        var lastError: Exception? = null
-        for (attempt in 1..3) {
-            val tmp = dir.resolve("pose_landmarker_lite.task.partial")
-            try {
-                val connection = (URI(poseModelUrl).toURL().openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
-                    connectTimeout = 30_000
-                    readTimeout = 120_000
-                    setRequestProperty("User-Agent", "stb-body-masks-gradle")
-                }
-                connection.inputStream.use { input ->
-                    tmp.outputStream().use { output -> input.copyTo(output) }
-                }
-                connection.disconnect()
-                val got = sha256(tmp)
-                if (got != poseModelSha256) {
+        fun fetch(url: String, dest: File, expected: String) {
+            if (dest.isFile && sha256(dest) == expected) return
+            var lastError: Exception? = null
+            for (attempt in 1..3) {
+                val tmp = File(dest.parentFile, dest.name + ".partial")
+                try {
+                    val connection = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
+                        instanceFollowRedirects = true
+                        connectTimeout = 30_000
+                        readTimeout = 120_000
+                        setRequestProperty("User-Agent", "stb-body-masks-gradle")
+                    }
+                    connection.inputStream.use { input ->
+                        tmp.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    connection.disconnect()
+                    val got = sha256(tmp)
+                    if (got != expected) {
+                        tmp.delete()
+                        error("SHA-256 de ${dest.name} no coincide: $got")
+                    }
+                    if (dest.exists()) dest.delete()
+                    if (!tmp.renameTo(dest)) {
+                        tmp.copyTo(dest, overwrite = true)
+                        tmp.delete()
+                    }
+                    lastError = null
+                    break
+                } catch (error: Exception) {
                     tmp.delete()
-                    error("SHA-256 del modelo de pose no coincide: $got")
+                    lastError = error
+                    Thread.sleep(1500L * attempt)
                 }
-                if (dest.exists()) dest.delete()
-                if (!tmp.renameTo(dest)) {
-                    tmp.copyTo(dest, overwrite = true)
-                    tmp.delete()
-                }
-                lastError = null
-                break
-            } catch (error: Exception) {
-                tmp.delete()
-                lastError = error
-                Thread.sleep(1500L * attempt)
+            }
+            if (lastError != null || !dest.isFile) {
+                throw lastError ?: IllegalStateException("No se pudo descargar ${dest.name}")
             }
         }
-        if (lastError != null || !dest.isFile) {
-            throw lastError ?: IllegalStateException("No se pudo descargar el modelo de pose")
+
+        val models = listOf(
+            Triple(poseLiteUrl, cache.resolve("pose_landmarker_lite.task"), poseLiteSha256),
+            Triple(poseFullUrl, cache.resolve("pose_landmarker_full.task"), poseFullSha256),
+        )
+        val aligner = rootProject.file("tools/align_task_bundle.py")
+        for ((url, source, sha) in models) {
+            fetch(url, source, sha)
+            project.exec {
+                commandLine(
+                    "python3",
+                    aligner.absolutePath,
+                    "--input",
+                    source.absolutePath,
+                    "--output",
+                    assets.resolve(source.name).absolutePath,
+                )
+            }
         }
     }
 }

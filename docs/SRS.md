@@ -11,6 +11,7 @@
 | Versión | Fecha | Descripción |
 | --- | --- | --- |
 | 1.0 | 2026-11-12 | Requisitos del MVP y de la versión futura con personaje de ficción |
+| 1.1 | 2026-11-12 | Detector por defecto: lite, GPU y análisis 320×240, con respaldo seleccionable |
 
 ## 1. Introducción
 
@@ -104,7 +105,7 @@ El mismo APK debe instalarse en un teléfono para pruebas. Por eso el táctil y 
 - En el decodificador, CameraX puede abrir la webcam como cámara frontal. Si no, se usa la trasera o la primera cámara, y el espejo se puede apagar.
 - MediaPipe Tasks Vision 1.2.3 es adecuado: `tasks-vision` no trae `.so` propio, y `tasks-core` 1.2.3 incluye `jni/armeabi-v7a/libmediapipe_tasks_jni.so` (ELF 32 bits ARM) con el grafo `PoseLandmarkerGraph`. Se comprobó el contenido de las AAR. La 0.10.26 de `tasks-vision` es solo arm64 y no sirve. Versiones futuras pueden volver a quitar el ABI de 32 bits; por eso la versión queda fijada.
 - El modelo `pose_landmarker_lite.task` (float16, revisión 1, SHA-256 `59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a`) se descarga en la compilación y entra en los assets. En ejecución no hace falta red.
-- El delegado GPU de MediaPipe no se usa: en este Mali-G31 es menos predecible que la CPU.
+- El delegado por defecto es la GPU del Mali-G31. Si no arranca, se usa la CPU sin grabar ese respaldo como preferencia. El modelo por defecto es el lite; el completo queda en el mando.
 - Hay una persona como mucho (`numPoses = 1`). No hay máscara de segmentación ni landmarker de cara en el MVP.
 - El arte de ejemplo es original. Un personaje de ficción con derechos de terceros no se incluye en el repositorio.
 
@@ -121,12 +122,15 @@ El mismo APK debe instalarse en un teléfono para pruebas. Por eso el táctil y 
 | Izquierda / derecha | Máscara anterior / siguiente |
 | Arriba, OK o Enter | Alternar espejo |
 | Abajo | Mostrar u ocultar puntos y huesos de depuración |
+| 4 | Alternar modelo lite y completo, y reiniciar el detector |
+| 5 | Alternar CPU y GPU, y reiniciar el detector |
+| 6 | Alternar el análisis entre 640×480 y 320×240, y reabrir la cámara |
 | Atrás | Cerrar la actividad |
 | OK sobre el botón de aviso | Ejecutar la acción de ese aviso (permiso, reintento o ajustes) |
 
 Mientras hay un aviso modal, las flechas mueven el foco y no cambian la máscara.
 
-**Cámara.** Permiso `CAMERA` en tiempo de ejecución. Vista previa con CameraX en modo compatible (TextureView) para poder espejar con `scaleX`. Análisis YUV con objetivo 640×480, relación 4:3, estrategia de quedarse con el fotograma más reciente.
+**Cámara.** Permiso `CAMERA` en tiempo de ejecución. Vista previa con CameraX en modo compatible (TextureView) para poder espejar con `scaleX`, a 640×480. El análisis va en RGBA_8888 (YUV si el HAL no lo acepta), por defecto 320×240 y 4:3, con dos bitmaps reutilizados para convertir el siguiente fotograma mientras hay una inferencia en curso. Si el HAL entrega otra medida, se escala al tamaño pedido.
 
 **Sistema.** `minSdk` 26, `targetSdk` 34. Banner de Android TV. `android.hardware.touchscreen` requerido en falso. `android.hardware.camera`, `camera.any` y `camera.front` requeridos en falso. `android.software.leanback` requerido en falso. `largeHeap` en falso. Sin permiso `INTERNET`: la telemetría que arrastra MediaPipe declara `INTERNET` y `ACCESS_NETWORK_STATE`, y el manifiesto de la app los quita con `tools:node="remove"`.
 
@@ -145,7 +149,7 @@ Los identificadores RF-MVP son comprobables.
 | RF-MVP-05 | Si no hay ninguna cámara, o CameraX no puede enlazarla, se muestra un aviso en español y se puede reintentar. |
 | RF-MVP-06 | Con permiso y cámara, se muestra la vista previa. Si existe cámara frontal, se usa esa. El espejo empieza activado. |
 | RF-MVP-07 | Arriba u OK alterna el espejo de la vista previa y de la máscara a la vez, y el estado se recuerda. |
-| RF-MVP-08 | El detector es MediaPipe Pose Landmarker lite, modo `LIVE_STREAM`, delegado CPU, una persona, sin máscara de segmentación. |
+| RF-MVP-08 | El detector es MediaPipe Pose Landmarker en `LIVE_STREAM`, una persona, sin máscara de segmentación. Por defecto: modelo lite, delegado GPU y análisis 320×240. Las teclas 4, 5 y 6 cambian modelo, delegado y resolución. Un fallo de carga prueba el respaldo y no sobrescribe la preferencia guardada. La primera ejecución de esta versión reescribe una sola vez esas tres preferencias a lite, GPU y 320×240. |
 | RF-MVP-09 | Sobre la vista se dibuja la máscara activa. Cada pieza sigue sus puntos mientras superan el umbral de visibilidad. Si un miembro no se ve, esa pieza no se dibuja; el resto sí. |
 | RF-MVP-10 | La colocación de cada pieza obedece la sección 3.5. |
 | RF-MVP-11 | Izquierda y derecha recorren las máscaras cargadas desde `assets/masks`, en orden alfabético del nombre visible, y la elección se recuerda. |
@@ -181,7 +185,7 @@ Esta versión no forma parte del MVP. El formato de la sección 3.5 es el contra
 | RNF-01 | `minSdk` 26, `targetSdk` 34, `compileSdk` 34. Lenguaje de la app: Kotlin. |
 | RNF-02 | El APK de depuración contiene solo `lib/armeabi-v7a`. La integración continua falla si aparece `arm64-v8a`, `x86`, `x86_64` o cualquier otra ABI, o si falta `armeabi-v7a`. |
 | RNF-03 | `libmediapipe_tasks_jni.so` está en ese ABI y es ELF de 32 bits ARM. |
-| RNF-04 | Objetivo de rendimiento: 15 FPS o más en el decodificador de la sección 2.4, con una persona, modelo lite, entrada cercana a 640×480 y delegado CPU. Es un objetivo de diseño. La integración continua no tiene ese hardware y no lo certifica. |
+| RNF-04 | Objetivo de rendimiento: 15 FPS o más en el decodificador de la sección 2.4, con una persona, modelo lite, análisis 320×240 y delegado GPU. Es un objetivo de diseño. La integración continua no tiene ese hardware y no lo certifica. Cada segundo se escribe en logcat, etiqueta `BodyMasksPerf`, una línea con fps, inferMs, convertMs, drawMs, modelo pedido y cargado, delegado y resolución. Al cargar el modelo se escribe `load requested=... loaded=... error=...`. |
 | RNF-05 | Memoria contenida para un equipo de 2 GB: una persona, sin segmentación, sin segundo modelo, sin `largeHeap`, un solo fotograma de análisis en vuelo, piezas PNG pequeñas. La app no debe acercarse al total de RAM del equipo. |
 | RNF-06 | La navegación principal no depende de una pantalla táctil. El foco del botón de aviso es visible. |
 | RNF-07 | Textos de interfaz a 15 sp o más; el contador de FPS, a 22 sp, sobre un panel oscuro. |
@@ -296,11 +300,12 @@ CA-05 y la medida de 15 FPS (RNF-04) se hacen en el decodificador o en un teléf
 | ID | Riesgo | Efecto | Mitigación |
 | --- | --- | --- | --- |
 | RR-01 | Una versión nueva de MediaPipe deja de publicar `armeabi-v7a` (ya pasó en `tasks-vision` 0.10.26). | El APK no arranca el detector en el decodificador. | Versión fijada en 1.2.3. La CI rechaza un APK sin ese `.so` de 32 bits o con arm64. |
-| RR-02 | El Cortex-A55 no alcanza 15 FPS con el modelo lite. | El disfraz va a tirones. | Una persona, 640×480, fotogramas descartados, sin cara ni segmentación, modelo lite. Si no basta, el siguiente paso es bajar la resolución de análisis, no añadir otro modelo. |
+| RR-02 | El Cortex-A55 no alcanza 15 FPS. | El disfraz va a tirones. | Lite, GPU, 320×240, conversión solapada con la inferencia, una persona, sin cara ni segmentación. El modelo completo y la CPU quedan como opción del mando. |
 | RR-03 | La webcam no aparece como frontal, o el espejo queda al revés. | El disfraz no coincide con el cuerpo. | Preferir frontal y, si no hay, otra cámara. El mando alterna el espejo. |
 | RR-04 | La vista previa y el análisis no salen con la misma relación de aspecto. | La máscara queda desplazada. | Misma estrategia 4:3 y `FIT_CENTER` en los dos. Sigue siendo un riesgo si el HAL recorta. |
 | RR-05 | Los 2 GB se agotan entre el sistema, la cámara y los bitmaps. | El sistema mata la app. | Sin `largeHeap`, un fotograma en vuelo, bitmaps de máscara pequeños, modelo lite único. |
 | RR-06 | El registro interno de MediaPipe (datatransport) se queja en un equipo sin servicios de Google. | Ruido en el log o, en el peor caso, un fallo al iniciar. | El arranque del detector está capturado y se muestra `msg_model_error`. |
+| RR-11 | Un `.task` con el primer archivo en un offset no múltiplo de 4 no se mapea y el lite cae al modelo completo sin decirlo. | Se pierde el ajuste rápido. | La compilación comprueba la alineación y reescribe el paquete si hace falta. Los oficiales de pose ya empiezan el dato en el byte 52. Un fallo de carga no graba el respaldo. |
 | RR-07 | `scaleX` no espeja un SurfaceView. | El cuerpo y la máscara no coinciden. | `PreviewView` en modo compatible (TextureView). |
 | RR-08 | El token de Actions del repositorio es de solo lectura. | El APK se construye, pero el release `latest` no se crea. | El job de release pide `contents: write`. Si la política del repositorio lo impide, hay que cambiar «Workflow permissions» a lectura y escritura. El job de compilación no depende de ese permiso. |
 | RR-09 | La clave de depuración está en el repositorio. | Cualquiera puede firmar una build con la misma clave. | Es una clave de depuración con contraseña pública, solo para sideload. No sirve para Play Store ni debe reutilizarse como clave de release. |

@@ -5,7 +5,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.util.Log
+import android.util.Size
 import android.view.KeyEvent
 import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,9 +24,18 @@ import com.stb.bodymasks.camera.CameraController
 import com.stb.bodymasks.databinding.ActivityMainBinding
 import com.stb.bodymasks.mask.LoadedMask
 import com.stb.bodymasks.mask.MaskRepository
+import com.stb.bodymasks.pose.AnalysisSize
+import com.stb.bodymasks.pose.BODY_MASKS_PERF_TAG
+import com.stb.bodymasks.pose.DelegateKind
+import com.stb.bodymasks.pose.PoseConfig
 import com.stb.bodymasks.pose.PoseEngine
 import com.stb.bodymasks.pose.PoseFrame
+import com.stb.bodymasks.pose.PoseModel
 import com.stb.bodymasks.pose.PosePoint
+import com.stb.bodymasks.pose.PREFS_VERSION
+import com.stb.bodymasks.pose.bodyMasksPerfLine
+import com.stb.bodymasks.pose.choiceAfterUpgrade
+import com.stb.bodymasks.pose.loadReportLine
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity(), PoseEngine.Listener {
@@ -31,13 +44,25 @@ class MainActivity : AppCompatActivity(), PoseEngine.Listener {
     private val cameraExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "camera-analysis").apply { priority = Thread.NORM_PRIORITY - 1 }
     }
+    private val perfHandler = Handler(Looper.getMainLooper())
+    private val perfTick = object : Runnable {
+        override fun run() {
+            if (!isDestroyed) logPerf()
+            perfHandler.postDelayed(this, 1000L)
+        }
+    }
 
     private var masks: List<LoadedMask> = emptyList()
     private var maskIndex = 0
     private var mirrorEnabled = true
     private var debugEnabled = false
+    private var model = PoseModel.LITE
+    private var delegate = DelegateKind.GPU
+    private var analysis = AnalysisSize.R320
+    private var loaded = PoseConfig(PoseModel.LITE, DelegateKind.GPU, AnalysisSize.R320)
     private var modelReady = false
     private var askedPermission = false
+    private var notice: String? = null
     private var poseEngine: PoseEngine? = null
     private var cameraController: CameraController? = null
 
@@ -59,26 +84,28 @@ class MainActivity : AppCompatActivity(), PoseEngine.Listener {
 
         binding.preview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         binding.preview.scaleType = PreviewView.ScaleType.FIT_CENTER
-        mirrorEnabled = prefs.getBoolean(KEY_MIRROR, true)
-        debugEnabled = prefs.getBoolean(KEY_DEBUG, false)
-        binding.overlay.mirror = mirrorEnabled
-        binding.overlay.showDebug = debugEnabled
+        loadPrefs()
         applyMirrorLabel()
+        refreshConfig()
 
         if (hasCameraPermission()) startPipeline() else showNeedPermission()
     }
 
     override fun onStart() {
         super.onStart()
+        perfHandler.removeCallbacks(perfTick)
+        perfHandler.post(perfTick)
         maybeStartCamera()
     }
 
     override fun onStop() {
+        perfHandler.removeCallbacks(perfTick)
         cameraController?.stop()
         super.onStop()
     }
 
     override fun onDestroy() {
+        perfHandler.removeCallbacksAndMessages(null)
         cameraController?.stop()
         cameraController = null
         poseEngine?.close()
@@ -113,35 +140,61 @@ class MainActivity : AppCompatActivity(), PoseEngine.Listener {
                     toggleDebug()
                     return true
                 }
+                KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_NUMPAD_4, KeyEvent.KEYCODE_PROG_BLUE -> {
+                    toggleModel()
+                    return true
+                }
+                KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_NUMPAD_5, KeyEvent.KEYCODE_PROG_GREEN -> {
+                    toggleDelegate()
+                    return true
+                }
+                KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_NUMPAD_6, KeyEvent.KEYCODE_PROG_RED -> {
+                    toggleResolution()
+                    return true
+                }
             }
         }
         return super.dispatchKeyEvent(event)
     }
 
-    override fun onReady() {
+    override fun onReady(applied: PoseConfig, requested: PoseConfig, loadError: String?) {
         if (isDestroyed) return
+        loaded = applied
         modelReady = true
+        Log.i(BODY_MASKS_PERF_TAG, loadReportLine(currentConfig(), applied, loadError))
+        notice = when {
+            loadError != null && requested.model != applied.model -> getString(R.string.notice_model_fallback)
+            loadError != null && requested.delegate != applied.delegate -> getString(R.string.notice_gpu_fallback)
+            else -> null
+        }
         binding.statusText.text = getString(R.string.hud_searching)
+        refreshConfig()
         maybeStartCamera()
+    }
+
+    override fun onGpuGaveUp() {
+        if (isDestroyed) return
+        Log.i(BODY_MASKS_PERF_TAG, "load event=gpu_runtime_error fallback=CPU")
+        notice = getString(R.string.notice_gpu_fallback)
+        refreshConfig()
     }
 
     override fun onFatal(error: Throwable) {
         if (isDestroyed) return
+        modelReady = false
         showPanel(getString(R.string.msg_model_error), getString(R.string.btn_retry)) {
             poseEngine?.close()
             poseEngine = null
-            modelReady = false
             startPipeline()
         }
     }
 
-    override fun onResult(frame: PoseFrame, fps: Int?) {
+    override fun onPose(frame: PoseFrame) {
         if (isDestroyed) return
         binding.overlay.setFrame(frame)
         binding.statusText.text = getString(
             if (frame.isTracking()) R.string.hud_tracking else R.string.hud_searching,
         )
-        if (fps != null) binding.fpsText.text = getString(R.string.hud_fps, fps)
     }
 
     private fun startPipeline() {
@@ -153,7 +206,7 @@ class MainActivity : AppCompatActivity(), PoseEngine.Listener {
         binding.statusText.text = getString(R.string.hud_loading)
         if (masks.isEmpty()) {
             Thread({
-                val loaded = try {
+                val loadedMasks = try {
                     MaskRepository(applicationContext).loadAll()
                 } catch (error: Throwable) {
                     runOnUiThread {
@@ -167,30 +220,28 @@ class MainActivity : AppCompatActivity(), PoseEngine.Listener {
                 }
                 runOnUiThread {
                     if (isDestroyed) return@runOnUiThread
-                    if (loaded.isEmpty()) {
+                    if (loadedMasks.isEmpty()) {
                         showPanel(getString(R.string.msg_masks_error), getString(R.string.btn_retry)) {
                             masks = emptyList()
                             startPipeline()
                         }
                         return@runOnUiThread
                     }
-                    masks = loaded
+                    masks = loadedMasks
                     selectInitialMask()
-                    ensureEngine()
+                    restartEngine()
                 }
             }, "mask-load").start()
         } else {
-            ensureEngine()
+            restartEngine()
         }
     }
 
-    private fun ensureEngine() {
-        if (poseEngine == null) {
-            modelReady = false
-            poseEngine = PoseEngine(this, this).also { it.start() }
-        } else if (modelReady) {
-            maybeStartCamera()
-        }
+    private fun restartEngine() {
+        modelReady = false
+        binding.statusText.text = getString(R.string.hud_loading)
+        val engine = poseEngine ?: PoseEngine(this, this).also { poseEngine = it }
+        engine.start(currentConfig())
     }
 
     private fun maybeStartCamera() {
@@ -200,12 +251,8 @@ class MainActivity : AppCompatActivity(), PoseEngine.Listener {
             owner = this,
             previewView = binding.preview,
             analysisExecutor = cameraExecutor,
-            onFrame = { bitmap, timestamp ->
-                val engine = poseEngine
-                if (engine != null && engine.canAcceptFrame()) {
-                    engine.submit(bitmap, timestamp)
-                }
-            },
+            analysisSize = { Size(analysis.width, analysis.height) },
+            engineProvider = { poseEngine },
             onUnavailable = { kind ->
                 runOnUiThread {
                     if (isDestroyed) return@runOnUiThread
@@ -222,6 +269,8 @@ class MainActivity : AppCompatActivity(), PoseEngine.Listener {
         ).also { cameraController = it }
         controller.start()
     }
+
+    private fun currentConfig(): PoseConfig = PoseConfig(model, delegate, analysis)
 
     private fun selectInitialMask() {
         val saved = prefs.getString(KEY_MASK, null)
@@ -261,6 +310,97 @@ class MainActivity : AppCompatActivity(), PoseEngine.Listener {
         debugEnabled = !debugEnabled
         prefs.edit().putBoolean(KEY_DEBUG, debugEnabled).apply()
         binding.overlay.showDebug = debugEnabled
+    }
+
+    private fun toggleModel() {
+        model = if (model == PoseModel.LITE) PoseModel.FULL else PoseModel.LITE
+        saveDetectorPrefs()
+        restartEngine()
+        refreshConfig()
+    }
+
+    private fun toggleDelegate() {
+        delegate = if (delegate == DelegateKind.CPU) DelegateKind.GPU else DelegateKind.CPU
+        saveDetectorPrefs()
+        restartEngine()
+        refreshConfig()
+    }
+
+    private fun toggleResolution() {
+        analysis = analysis.next()
+        saveDetectorPrefs()
+        refreshConfig()
+        cameraController?.restart()
+    }
+
+    private fun refreshConfig() {
+        val line = getString(
+            R.string.hud_config,
+            loaded.model.logName,
+            loaded.delegate.logName,
+            analysis.label,
+        )
+        binding.configText.text = notice?.let { "$it\n$line" } ?: line
+    }
+
+    private fun logPerf() {
+        val sample = poseEngine?.takeSample()
+        val fps = sample?.fps ?: 0
+        if (sample != null && sample.frames > 0) {
+            binding.fpsText.text = getString(R.string.hud_fps, fps)
+        } else if (sample == null) {
+            binding.fpsText.text = getString(R.string.hud_fps_unknown)
+        } else {
+            binding.fpsText.text = getString(R.string.hud_fps, 0)
+        }
+        Log.i(
+            BODY_MASKS_PERF_TAG,
+            bodyMasksPerfLine(
+                fps = fps,
+                inferMs = sample?.inferMs ?: 0,
+                convertMs = sample?.convertMs ?: 0,
+                drawMs = binding.overlay.lastDrawMs,
+                frames = sample?.frames ?: 0,
+                model = loaded.model.logName,
+                requested = model.logName,
+                delegate = loaded.delegate.logName,
+                targetW = analysis.width,
+                targetH = analysis.height,
+                frameW = sample?.frameW ?: 0,
+                frameH = sample?.frameH ?: 0,
+                tracked = sample?.tracked ?: 0,
+            ),
+        )
+    }
+
+    private fun loadPrefs() {
+        mirrorEnabled = prefs.getBoolean(KEY_MIRROR, true)
+        debugEnabled = prefs.getBoolean(KEY_DEBUG, false)
+        val choice = choiceAfterUpgrade(
+            storedVersion = prefs.getInt(KEY_VERSION, 0),
+            model = prefs.getString(KEY_MODEL, null),
+            delegate = prefs.getString(KEY_DELEGATE, null),
+            res = prefs.getString(KEY_RES, null),
+        )
+        model = choice.model
+        delegate = choice.delegate
+        analysis = choice.analysis
+        loaded = currentConfig()
+        if (prefs.getInt(KEY_VERSION, 0) < PREFS_VERSION) {
+            saveDetectorPrefs()
+        }
+        binding.overlay.mirror = mirrorEnabled
+        binding.overlay.showDebug = debugEnabled
+    }
+
+    /** Solo la elección del mando. Un respaldo de carga no pasa por aquí. */
+    private fun saveDetectorPrefs() {
+        prefs.edit()
+            .putString(KEY_MODEL, model.logName)
+            .putString(KEY_DELEGATE, delegate.logName.lowercase())
+            .putString(KEY_RES, if (analysis == AnalysisSize.R320) "320" else "640")
+            .putInt(KEY_VERSION, PREFS_VERSION)
+            .apply()
     }
 
     private fun hasCameraPermission(): Boolean =
@@ -317,5 +457,9 @@ class MainActivity : AppCompatActivity(), PoseEngine.Listener {
         const val KEY_MASK = "mask"
         const val KEY_MIRROR = "mirror"
         const val KEY_DEBUG = "debug"
+        const val KEY_MODEL = "model"
+        const val KEY_DELEGATE = "delegate"
+        const val KEY_RES = "res"
+        const val KEY_VERSION = "prefs_version"
     }
 }

@@ -66,6 +66,7 @@ fi
 listing=$(unzip -l "$APK")
 for needle in \
   "assets/pose_landmarker_lite.task" \
+  "assets/pose_landmarker_full.task" \
   "assets/masks/robot/rig.json" \
   "assets/masks/esqueleto/rig.json"
 do

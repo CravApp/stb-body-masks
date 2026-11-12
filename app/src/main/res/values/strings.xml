@@ -8,7 +8,10 @@
     <string name="hud_searching">Buscando cuerpo…</string>
     <string name="hud_tracking">Cuerpo detectado</string>
     <string name="hud_loading">Cargando modelo…</string>
-    <string name="hud_hint">← → máscara\n↑/OK espejo    ↓ puntos</string>
+    <string name="hud_hint">← → máscara\n↑/OK espejo    ↓ puntos\n4 modelo    5 CPU/GPU    6 resolución</string>
+    <string name="hud_config">%1$s · %2$s · %3$s</string>
+    <string name="notice_model_fallback">El modelo lite no cargó. Se usa el completo sin cambiar la preferencia.</string>
+    <string name="notice_gpu_fallback">La GPU no arrancó. Se usa la CPU sin cambiar la preferencia.</string>
     <string name="hud_mirror_on">Espejo: sí</string>
     <string name="hud_mirror_off">Espejo: no</string>
     <string name="msg_need_permission">La app necesita la cámara para ver el cuerpo y superponer la máscara. La imagen se procesa en el dispositivo y no se envía a ningún sitio.</string>

@@ -57,6 +57,14 @@
             android:textSize="18sp" />
 
         <TextView
+            android:id="@+id/configText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textColor="@color/hud_text"
+            android:textSize="16sp" />
+
+        <TextView
             android:id="@+id/maskText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

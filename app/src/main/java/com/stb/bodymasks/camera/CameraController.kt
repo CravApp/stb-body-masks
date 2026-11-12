@@ -1,6 +1,6 @@
 package com.stb.bodymasks.camera
 
-import android.graphics.Bitmap
+import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import android.view.Surface
@@ -16,23 +16,29 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import com.stb.bodymasks.pose.PoseEngine
 import java.util.concurrent.Executor
 
 /**
- * Vista previa + análisis a 640x480 (4:3). Se prefiere la cámara frontal:
- * en el decodificador la webcam UVC aparece como id "0" con LENS_FACING frontal.
+ * Vista previa 640x480 y análisis a la resolución pedida (4:3).
+ * Se prefiere la cámara frontal: en el decodificador la webcam UVC es id "0", LENS_FACING FRONT.
+ * Si el HAL ignora los 320x240, el bitmap se reduce antes de la inferencia.
+ * La conversión del siguiente fotograma puede ir mientras corre un detectAsync.
  */
 class CameraController(
     private val owner: LifecycleOwner,
     private val previewView: PreviewView,
     private val analysisExecutor: Executor,
-    private val onFrame: (Bitmap, Long) -> Unit,
+    private val analysisSize: () -> Size,
+    private val engineProvider: () -> PoseEngine?,
     private val onUnavailable: (kind: Unavailable) -> Unit,
 ) {
     enum class Unavailable { NONE, BUSY }
 
     private var provider: ProcessCameraProvider? = null
     private var startGeneration = 0
+    private val writer = FrameWriter()
+    private var useRgba = true
 
     fun start() {
         val generation = ++startGeneration
@@ -66,40 +72,69 @@ class CameraController(
         provider?.unbindAll()
     }
 
+    fun restart() {
+        stop()
+        start()
+    }
+
     private fun bind(cameraProvider: ProcessCameraProvider) {
         if (!owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
         val selector = choose(cameraProvider)
         val rotation = previewView.display?.rotation ?: Surface.ROTATION_0
         val preview = Preview.Builder()
-            .setResolutionSelector(resolution())
+            .setResolutionSelector(resolution(Size(640, 480)))
             .setTargetRotation(rotation)
             .build()
             .also { it.setSurfaceProvider(previewView.surfaceProvider) }
+        val target = analysisSize()
+        val analysis = analysisUseCase(target, rotation, useRgba)
+        try {
+            cameraProvider.unbindAll()
+            cameraProvider.bindToLifecycle(owner, selector, preview, analysis)
+            Log.i(TAG, "Cámara enlazada, análisis ${target.width}x${target.height} rgba=$useRgba")
+        } catch (error: Throwable) {
+            if (useRgba) {
+                useRgba = false
+                Log.w(TAG, "RGBA_8888 no enlazó; se usa YUV", error)
+                bind(cameraProvider)
+                return
+            }
+            Log.e(TAG, "bindToLifecycle falló", error)
+            onUnavailable(Unavailable.BUSY)
+        }
+    }
+
+    private fun analysisUseCase(target: Size, rotation: Int, rgba: Boolean): ImageAnalysis {
+        val format = if (rgba) {
+            ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888
+        } else {
+            ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888
+        }
         val analysis = ImageAnalysis.Builder()
-            .setResolutionSelector(resolution())
+            .setResolutionSelector(resolution(target))
             .setTargetRotation(rotation)
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            .setOutputImageFormat(format)
             .build()
         analysis.setAnalyzer(analysisExecutor) { image ->
+            val started = SystemClock.elapsedRealtime()
+            var borrowed: android.graphics.Bitmap? = null
             try {
-                val bitmap = image.toBitmapCompat()
-                val timestamp = image.imageInfo.timestamp
-                onFrame(bitmap, timestamp)
+                val engine = engineProvider() ?: return@setAnalyzer
+                val bitmap = engine.borrowFrame(target.width, target.height) ?: return@setAnalyzer
+                borrowed = bitmap
+                writer.write(image, bitmap)
+                val convertMs = (SystemClock.elapsedRealtime() - started).toInt()
+                engine.submitFrame(bitmap, image.imageInfo.timestamp, convertMs)
+                borrowed = null
             } catch (error: Throwable) {
+                borrowed?.let { engineProvider()?.releaseFrame(it) }
                 Log.e(TAG, "No se pudo leer un fotograma", error)
             } finally {
                 image.close()
             }
         }
-        try {
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(owner, selector, preview, analysis)
-            Log.i(TAG, "Cámara enlazada")
-        } catch (error: Throwable) {
-            Log.e(TAG, "bindToLifecycle falló", error)
-            onUnavailable(Unavailable.BUSY)
-        }
+        return analysis
     }
 
     private fun choose(cameraProvider: ProcessCameraProvider): CameraSelector {
@@ -119,12 +154,12 @@ class CameraController(
             .build()
     }
 
-    private fun resolution(): ResolutionSelector = ResolutionSelector.Builder()
+    private fun resolution(size: Size): ResolutionSelector = ResolutionSelector.Builder()
         .setAspectRatioStrategy(
             AspectRatioStrategy(AspectRatio.RATIO_4_3, AspectRatioStrategy.FALLBACK_RULE_AUTO),
         )
         .setResolutionStrategy(
-            ResolutionStrategy(Size(640, 480), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
+            ResolutionStrategy(size, ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
         )
         .build()
 
